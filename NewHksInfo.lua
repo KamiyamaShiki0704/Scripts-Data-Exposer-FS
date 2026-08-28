@@ -14,6 +14,9 @@ TraversePointerChain = 10000 --args <starting base>, <value type>, <bitOffset/po
 GAME_BASE = 0
 CHR_INS_BASE = 1
 TARGET_CHR_INS_BASE = 2
+-- Version-independent WorldChrMan instance discovered by the DLL at runtime.
+-- Prefer this over a GAME_BASE chain with a hard-coded WorldChrMan RVA.
+WORLD_CHR_MAN_BASE = 3
 UNSIGNED_BYTE = 0
 SIGNED_BYTE = 1
 UNSIGNED_SHORT = 2
@@ -22,6 +25,39 @@ UNSIGNED_INT = 4
 SIGNED_INT = 5
 FLOAT = 6
 BIT = 7
+
+--Returns 1 while an input is held, otherwise 0. Input is ignored while the
+--game is not the foreground process. XInput reads controller user index 0.
+IsInputDown = 10005 --args <device>, <code>
+--Returns held milliseconds, matching ActionDuration-style comparisons. It is
+--0 while up and starts at 1 on the first down observation.
+InputDuration = 10006 --args <device>, <code>
+INPUT_KEYBOARD = 0 --code: Windows virtual-key code, e.g. 0x48 for H
+INPUT_XINPUT_BUTTON = 1 --code: XINPUT_GAMEPAD_* button mask
+INPUT_XINPUT_TRIGGER = 2 --code: INPUT_XINPUT_TRIGGER_LEFT/RIGHT
+INPUT_XINPUT_TRIGGER_LEFT = 0
+INPUT_XINPUT_TRIGGER_RIGHT = 1
+
+XINPUT_GAMEPAD_DPAD_UP = 0x0001
+XINPUT_GAMEPAD_DPAD_DOWN = 0x0002
+XINPUT_GAMEPAD_DPAD_LEFT = 0x0004
+XINPUT_GAMEPAD_DPAD_RIGHT = 0x0008
+XINPUT_GAMEPAD_START = 0x0010
+XINPUT_GAMEPAD_BACK = 0x0020
+XINPUT_GAMEPAD_LEFT_THUMB = 0x0040
+XINPUT_GAMEPAD_RIGHT_THUMB = 0x0080
+XINPUT_GAMEPAD_LEFT_SHOULDER = 0x0100
+XINPUT_GAMEPAD_RIGHT_SHOULDER = 0x0200
+XINPUT_GAMEPAD_A = 0x1000
+XINPUT_GAMEPAD_B = 0x2000
+XINPUT_GAMEPAD_X = 0x4000
+XINPUT_GAMEPAD_Y = 0x8000
+
+--Examples:
+--env(IsInputDown, INPUT_KEYBOARD, 0x48) --H
+--env(InputDuration, INPUT_KEYBOARD, 0x48) >= 435 --H held for 0.435 seconds
+--env(IsInputDown, INPUT_XINPUT_BUTTON, XINPUT_GAMEPAD_A)
+--env(IsInputDown, INPUT_XINPUT_TRIGGER, INPUT_XINPUT_TRIGGER_LEFT)
 
 --Print to this mod's console
 --Use ExposePrint func
@@ -275,12 +311,11 @@ function GetPosition()
     return {x = x, y = y, z = z}
 end
 
-local WORLD_CHR_MAN = 0x3D65F88
 local LOCAL_PLAYER = 0x1E508
 function GetLocalPlayerPosition()
-    local x = env(TraversePointerChain, GAME_BASE, FLOAT, WORLD_CHR_MAN, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 0)
-    local y = env(TraversePointerChain, GAME_BASE, FLOAT, WORLD_CHR_MAN, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 4)
-    local z = env(TraversePointerChain, GAME_BASE, FLOAT, WORLD_CHR_MAN, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 8)
+    local x = env(TraversePointerChain, WORLD_CHR_MAN_BASE, FLOAT, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 0)
+    local y = env(TraversePointerChain, WORLD_CHR_MAN_BASE, FLOAT, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 4)
+    local z = env(TraversePointerChain, WORLD_CHR_MAN_BASE, FLOAT, LOCAL_PLAYER, CHR_MODULES, PHYSICS_MODULE, POS + 8)
     return {x = x, y = y, z = z}
 end
 
@@ -320,13 +355,13 @@ local SUPERARMOR_MODULE = 0x40
 local POISE = 0x10
 local UNK_FOR_POISE_TIMER = 0x14
 function HalfEverythingsPoise()
-    local size = env(TraversePointerChain, GAME_BASE, UNSIGNED_INT, WORLD_CHR_MAN, CHR_ENTRY_LIST_END) - env(TraversePointerChain, GAME_BASE, UNSIGNED_INT, WORLD_CHR_MAN, CHR_ENTRY_LIST_START)
+    local size = env(TraversePointerChain, WORLD_CHR_MAN_BASE, UNSIGNED_INT, CHR_ENTRY_LIST_END) - env(TraversePointerChain, WORLD_CHR_MAN_BASE, UNSIGNED_INT, CHR_ENTRY_LIST_START)
     if size == 0 then return end
     --i = 1 to skip yourself
     for offset = 0x10, size, 0x10 do
-        local poise = env(TraversePointerChain, GAME_BASE, FLOAT, WORLD_CHR_MAN, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, POISE)
-        act(WritePointerChain, GAME_BASE, FLOAT, poise/2, WORLD_CHR_MAN, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, POISE)
-        act(WritePointerChain, GAME_BASE, FLOAT, -1, WORLD_CHR_MAN, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, UNK_FOR_POISE_TIMER)
+        local poise = env(TraversePointerChain, WORLD_CHR_MAN_BASE, FLOAT, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, POISE)
+        act(WritePointerChain, WORLD_CHR_MAN_BASE, FLOAT, poise/2, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, POISE)
+        act(WritePointerChain, WORLD_CHR_MAN_BASE, FLOAT, -1, CHR_ENTRY_LIST_START, offset, CHR_MODULES, SUPERARMOR_MODULE, UNK_FOR_POISE_TIMER)
     end
 end
 
@@ -372,7 +407,6 @@ end
 --This function does not spawn a character by itself, it only sets data and tells the debug chr creator to spawn when it can.
 --This means that you can only create 1 chr per frame using this.
 --Unrecommended
-local WORLD_CHR_MAN = 0x3D65F88
 local DEBUG_CHR_CREATOR = 0x1E648
 local IS_SPAWN = 0x44
 local MODEL = 0x100
@@ -389,26 +423,26 @@ function SetDebugChrSpawnData(spawnThisFrame, chrId, npcParamId, npcThinkParamId
     end
 
     --Translate chrId to wide string in the form of "c0000" or "c4700"
-    act(WritePointerChain, GAME_BASE, UNSIGNED_SHORT, 0x63, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, MODEL) -- first char is 'c'
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, UNSIGNED_SHORT, 0x63, DEBUG_CHR_CREATOR, MODEL) -- first char is 'c'
     for i = 4, 1, -1 do
         local digit = chrId % 10
-        act(WritePointerChain, GAME_BASE, UNSIGNED_SHORT, 0x30 + digit, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, MODEL + i * 2)
+        act(WritePointerChain, WORLD_CHR_MAN_BASE, UNSIGNED_SHORT, 0x30 + digit, DEBUG_CHR_CREATOR, MODEL + i * 2)
         chrId = math.floor(chrId / 10)
     end
 
-    act(WritePointerChain, GAME_BASE, SIGNED_INT, npcParamId, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_NPC_PARAM)
-    act(WritePointerChain, GAME_BASE, SIGNED_INT, npcThinkParamId, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_NPC_THINK_PARAM)
-    act(WritePointerChain, GAME_BASE, SIGNED_INT, eventEntityId, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_EVENT_ENTITY_ID)
-    act(WritePointerChain, GAME_BASE, SIGNED_INT, talkId, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_TALK_ID)
-    act(WritePointerChain, GAME_BASE, FLOAT, posX, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_POS + 0)
-    act(WritePointerChain, GAME_BASE, FLOAT, posY, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_POS + 4)
-    act(WritePointerChain, GAME_BASE, FLOAT, posZ, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_POS + 8)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_INT, npcParamId, DEBUG_CHR_CREATOR, CHR_NPC_PARAM)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_INT, npcThinkParamId, DEBUG_CHR_CREATOR, CHR_NPC_THINK_PARAM)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_INT, eventEntityId, DEBUG_CHR_CREATOR, CHR_EVENT_ENTITY_ID)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_INT, talkId, DEBUG_CHR_CREATOR, CHR_TALK_ID)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, FLOAT, posX, DEBUG_CHR_CREATOR, CHR_POS + 0)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, FLOAT, posY, DEBUG_CHR_CREATOR, CHR_POS + 4)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, FLOAT, posZ, DEBUG_CHR_CREATOR, CHR_POS + 8)
 
-    act(WritePointerChain, GAME_BASE, SIGNED_BYTE, isPlayer, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, IS_PLAYER)
-    act(WritePointerChain, GAME_BASE, SIGNED_INT, charaInitParam, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, CHR_CHARA_INIT_PARAM)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_BYTE, isPlayer, DEBUG_CHR_CREATOR, IS_PLAYER)
+    act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_INT, charaInitParam, DEBUG_CHR_CREATOR, CHR_CHARA_INIT_PARAM)
 
     if spawnThisFrame == TRUE then
-        act(WritePointerChain, GAME_BASE, SIGNED_BYTE, 1, WORLD_CHR_MAN, DEBUG_CHR_CREATOR, IS_SPAWN)
+        act(WritePointerChain, WORLD_CHR_MAN_BASE, SIGNED_BYTE, 1, DEBUG_CHR_CREATOR, IS_SPAWN)
     end
 end
 

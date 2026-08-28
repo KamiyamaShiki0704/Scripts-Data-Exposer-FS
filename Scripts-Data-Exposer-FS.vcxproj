@@ -183,6 +183,7 @@
     <ClInclude Include="game\AOBScan.h" />
     <ClInclude Include="game\Emevd.h" />
     <ClInclude Include="game\HksState.h" />
+    <ClInclude Include="game\InputState.h" />
     <ClInclude Include="game\ProcessData.h" />
     <ClInclude Include="game\ProcessStructs.h" />
     <ClInclude Include="include\Logger.h" />

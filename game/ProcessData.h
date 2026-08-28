@@ -333,7 +333,7 @@ bool (*emevdSystemFunction)(void* unk1, void* unk2, CSEmkEventIns* event);
 //Creates a new chr using the debug methods. This chr will have to be manually deleted for memory management.
 void createChrDebug(ChrSpawnDbgProperties& properties) 
 {
-    intptr_t dbgChrCreator = *PointerChain::make<intptr_t, true>(WorldChrMan, 0x1e640);
+    intptr_t dbgChrCreator = *PointerChain::make<intptr_t, true>(WorldChrMan, 0x1e648);
     if (dbgChrCreator == NULL) return;
 
     *(wchar_t*)(dbgChrCreator + 0x100) = properties.model[0];
@@ -366,5 +366,5 @@ void (*deleteChr)(void* worldChrMan, void* chrIns);
 
 void* getLatestDebugChr() 
 {
-    return *PointerChain::make<void*, true>(WorldChrMan, 0x1e640, 0x1b0);
+    return *PointerChain::make<void*, true>(WorldChrMan, 0x1e648, 0x1b0);
 }

@@ -113,6 +113,9 @@
     <ClInclude Include="game\HksState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="game\InputState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="game\ProcessData.h">
       <Filter>Header Files</Filter>
     </ClInclude>

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include "InputState.h"
 #include "ProcessData.h"
 #include "../include/Logger.h"
 #include "../include/PointerChain.h"
@@ -10,6 +11,8 @@ enum EnvId
     EXECUTE_FUNCTION = 10002,
     GET_EVENT_FLAG = 10003,
     GET_PARAM = 10004,
+    IS_INPUT_DOWN = 10005,
+    INPUT_DURATION = 10006,
 };
 enum ActId
 {
@@ -30,6 +33,11 @@ enum ActId
 
 //hks functions return invalid when something is wrong, so we'll do the same with our custom funcs
 constexpr float INVALID = -1;
+
+// Scripts using the previously documented WorldChrMan RVA pass it as the first
+// GAME_BASE pointer-chain offset. ER 2.7.0 moved the singleton slot, so translate
+// that legacy value to the address found by the runtime AOB scan.
+constexpr intptr_t LEGACY_WORLD_CHR_MAN_RVA = 0x3D65F88;
 
 static int SINGLE_BIT_MASKS[] = { 1, 2, 4, 8, 16, 32, 64, 128 };
 
@@ -88,6 +96,8 @@ inline intptr_t getBaseFromType(PointerBaseType baseType, void* hksState, void* 
         return getProcessBase();
     if (baseType == CHR_INS)
         return (intptr_t)chrIns;
+    if (baseType == WORLD_CHR_MAN_INSTANCE)
+        return WorldChrMan == nullptr ? 0 : (intptr_t)*WorldChrMan;
     if (baseType == TARGET_CHR_INS)
     {
         if (isPlayerIns(chrIns))
@@ -99,6 +109,42 @@ inline intptr_t getBaseFromType(PointerBaseType baseType, void* hksState, void* 
     }
 
     return 0;
+}
+
+constexpr intptr_t translateLegacyGameOffset(
+    PointerBaseType baseType,
+    intptr_t offset,
+    bool isFirstOffset,
+    intptr_t worldChrManSlot,
+    intptr_t processBase)
+{
+    if (baseType == GAME && isFirstOffset && offset == LEGACY_WORLD_CHR_MAN_RVA && worldChrManSlot != 0)
+        return worldChrManSlot - processBase;
+
+    return offset;
+}
+
+static_assert(translateLegacyGameOffset(
+    GAME,
+    LEGACY_WORLD_CHR_MAN_RVA,
+    true,
+    0x143D69FF8,
+    0x140000000) == 0x3D69FF8);
+static_assert(translateLegacyGameOffset(
+    GAME,
+    LEGACY_WORLD_CHR_MAN_RVA,
+    false,
+    0x143D69FF8,
+    0x140000000) == LEGACY_WORLD_CHR_MAN_RVA);
+
+inline intptr_t getVersionCompatibleOffset(PointerBaseType baseType, intptr_t offset, bool isFirstOffset)
+{
+    return translateLegacyGameOffset(
+        baseType,
+        offset,
+        isFirstOffset,
+        (intptr_t)WorldChrMan,
+        getProcessBase());
 }
 
 void* getParamRowEntry(int paramIndex, int rowId)
@@ -188,6 +234,7 @@ auto INCORRECT_ARGS = "Not enough arguments.";
 auto NULL_POINTER = "Encountered null pointer.";
 auto PARAM_DOESNT_EXIST = "Param doesn't exist.";
 auto INCORRECT_MODEL = "Incorrect model format.";
+auto INVALID_INPUT = "Invalid input device or code.";
 
 /// <summary>
 /// Function for new envs
@@ -200,6 +247,29 @@ std::pair<const char*, float> newEnvFunc(void** chrInsPtr, int envId, HksState* 
 {
     switch (envId)
     {
+    case IS_INPUT_DOWN:
+    case INPUT_DURATION:
+    {
+        //device, code
+        if (!hksHasParamNumber(hksState, 2) || !hksHasParamNumber(hksState, 3))
+            return std::pair(INCORRECT_ARGS, INVALID);
+
+        const int device = hksGetParamInt(hksState, 2);
+        const int code = hksGetParamInt(hksState, 3);
+        if (!InputState::isInputCodeValid(device, code))
+            return std::pair(INVALID_INPUT, INVALID);
+
+        if (envId == IS_INPUT_DOWN)
+        {
+            return std::pair(
+                OK,
+                InputState::isInputDown(device, code) ? 1.0f : 0.0f);
+        }
+
+        return std::pair(
+            OK,
+            InputState::inputDurationMilliseconds(device, code));
+    }
     case TRAVERSE_POINTER_CHAIN:
     {
         //pointerBaseType, valueType, bitOffset/pointerOffset1, pointerOffsets...)
@@ -207,7 +277,8 @@ std::pair<const char*, float> newEnvFunc(void** chrInsPtr, int envId, HksState* 
         {
             return std::pair(INCORRECT_ARGS, INVALID);
         }
-        intptr_t address = getBaseFromType((PointerBaseType)hksGetParamInt(hksState, 2), hksState, *chrInsPtr);
+        PointerBaseType baseType = (PointerBaseType)hksGetParamInt(hksState, 2);
+        intptr_t address = getBaseFromType(baseType, hksState, *chrInsPtr);
         if (address == 0)
             return std::pair(NULL_POINTER, INVALID);
 
@@ -226,12 +297,17 @@ std::pair<const char*, float> newEnvFunc(void** chrInsPtr, int envId, HksState* 
         else
             paramIndex = 4;
 
+        const int firstOffsetParamIndex = paramIndex;
+
         while (hksHasParamNumber(hksState, paramIndex + 1))
         {
             if (address == 0)
                 return std::pair(NULL_POINTER, INVALID);
 
-            intptr_t offset = hksGetParamLong(hksState, paramIndex);
+            intptr_t offset = getVersionCompatibleOffset(
+                baseType,
+                hksGetParamLong(hksState, paramIndex),
+                paramIndex == firstOffsetParamIndex);
     
 
             address = *(intptr_t*)(address + offset);
@@ -240,7 +316,10 @@ std::pair<const char*, float> newEnvFunc(void** chrInsPtr, int envId, HksState* 
         if (address == 0)
             return std::pair(NULL_POINTER, INVALID);
 
-        address = address + hksGetParamLong(hksState, paramIndex);
+        address = address + getVersionCompatibleOffset(
+            baseType,
+            hksGetParamLong(hksState, paramIndex),
+            paramIndex == firstOffsetParamIndex);
 
         return std::pair(OK, getValueFromAddress(address, valueType, bitOffset));
     }
@@ -300,7 +379,8 @@ static const char* newActFunc(void** chrInsPtr, int actId, HksState* hksState)
         //base, valueType, value, bitOffset/pointerOffset1, pointerOffsets...
         if (!hksHasParamNumber(hksState, 2) || !hksHasParamNumber(hksState, 3) || !hksHasParamNumber(hksState, 4) || !hksHasParamNumber(hksState, 5))
             return INCORRECT_ARGS;
-        intptr_t address = getBaseFromType((PointerBaseType)hksGetParamInt(hksState, 2), hksState, *chrInsPtr);
+        PointerBaseType baseType = (PointerBaseType)hksGetParamInt(hksState, 2);
+        intptr_t address = getBaseFromType(baseType, hksState, *chrInsPtr);
         int valType = hksGetParamInt(hksState, 3);
         int paramIndex = 4;
         int bitOffset = 0;
@@ -316,18 +396,26 @@ static const char* newActFunc(void** chrInsPtr, int actId, HksState* hksState)
         else
             paramIndex = 5;
 
+        const int firstOffsetParamIndex = paramIndex;
+
         while (hksHasParamNumber(hksState, paramIndex + 1))
         {
             if (address == 0)
                 return NULL_POINTER;
 
-            intptr_t offset = hksGetParamLong(hksState, paramIndex);
+            intptr_t offset = getVersionCompatibleOffset(
+                baseType,
+                hksGetParamLong(hksState, paramIndex),
+                paramIndex == firstOffsetParamIndex);
             address = *(intptr_t*)(address + offset);
             paramIndex++;
         }
         if (address == 0)
             return NULL_POINTER;
-        address = address + hksGetParamLong(hksState, paramIndex);
+        address = address + getVersionCompatibleOffset(
+            baseType,
+            hksGetParamLong(hksState, paramIndex),
+            paramIndex == firstOffsetParamIndex);
 
         setValueInAddress(address, valType, hksGetParamInt(hksState, 4), hks_luaL_checknumber(hksState, 4), bitOffset);
         return OK;
@@ -474,10 +562,31 @@ static const char* newActFunc(void** chrInsPtr, int actId, HksState* hksState)
 /// <returns>number of values returned</returns>
 static int LuaHks_env(HksState* hksState)
 {
-    void* chrIns = getHksChrInsOwner(hksState);
-    if (chrIns == NULL || !hksHasParamNumber(hksState, 1))
+    if (!hksHasParamNumber(hksState, 1))
     {
-        //ChrIns should never be null, there should always be envId (1st argument)
+        //There should always be an envId (1st argument).
+        hks_lua_pushnumber(hksState, 0);
+        return 1;
+    }
+
+    const int envId = hks_luaL_checkint(hksState, 1);
+    if (envId == IS_INPUT_DOWN || envId == INPUT_DURATION)
+    {
+        const auto result = newEnvFunc(nullptr, envId, hksState);
+        if (result.first == OK)
+        {
+            hks_lua_pushnumber(hksState, result.second);
+            return 1;
+        }
+
+        hksPushNil(hksState);
+        hksPushString(hksState, result.first);
+        return 2;
+    }
+
+    void* chrIns = getHksChrInsOwner(hksState);
+    if (chrIns == NULL)
+    {
         hks_lua_pushnumber(hksState, 0);
         return 1;
     }
@@ -485,10 +594,8 @@ static int LuaHks_env(HksState* hksState)
     //chrIns->chrModules->behaviorScript->chrEnvRunsOn
     //always self?
     void** envTarget = *PointerChain::make<void**>(chrIns, 0x190, 0x10, 0x18);
-    int envId = hks_luaL_checkint(hksState, 1);
 
     //The function acceptable "envId" are mutually exclusive. The one not used must return 0, so their sum would be the result of the used function
-    float numRes = 0;
     auto result = newEnvFunc(envTarget, envId, hksState); 
     if (result.first == OK) 
     {
