@@ -139,6 +139,8 @@ static_assert(translateLegacyGameOffset(
 
 inline intptr_t getVersionCompatibleOffset(PointerBaseType baseType, intptr_t offset, bool isFirstOffset)
 {
+    if (baseType == WORLD_CHR_MAN_INSTANCE && isFirstOffset)
+        return ExposerCompatibility::WorldField(offset);
     return translateLegacyGameOffset(
         baseType,
         offset,
