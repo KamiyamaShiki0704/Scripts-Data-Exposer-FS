@@ -1,6 +1,12 @@
 #pragma once
 
-enum PointerBaseType { GAME = 0, CHR_INS = 1, TARGET_CHR_INS = 2 };
+enum PointerBaseType
+{
+	GAME = 0,
+	CHR_INS = 1,
+	TARGET_CHR_INS = 2,
+	WORLD_CHR_MAN_INSTANCE = 3,
+};
 
 enum ValueInAddressType
 {

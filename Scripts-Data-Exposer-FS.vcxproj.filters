@@ -107,10 +107,19 @@
     <ClInclude Include="game\AOBScan.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="game\Compatibility.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="game\CompatibilityData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="game\Emevd.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="game\HksState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="game\InputState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="game\ProcessData.h">

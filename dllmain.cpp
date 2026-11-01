@@ -82,6 +82,10 @@ void onAttach()
     Logger::debug("Start onAttach");
 
     initBase();
+    if (!ExposerCompatibility::Initialize(getProcessBase())) {
+        Logger::log("Unsupported executable identity/layout; Exposer hooks not installed");
+        return;
+    }
 
     int mhStatus = MH_Initialize();
     if (mhStatus != MH_OK) 
@@ -91,6 +95,11 @@ void onAttach()
     }
 
     initAddresses();
+    if (!ExposerCompatibility::ValidateRegistered(getProcessBase(), registeredAddresses,
+            ExposerCompatibility::Version.load(std::memory_order_acquire))) {
+        Logger::log("Native binding/preimage mismatch; Exposer hooks not installed");
+        return;
+    }
 
     initHooks();
 

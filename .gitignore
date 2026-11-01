@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local delivery packages, research, and development-only scripts
+/dist/
+/Scripts/delivery/
+/tools/
